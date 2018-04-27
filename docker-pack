@@ -1,0 +1,290 @@
+#!/bin/bash
+
+#Script to create a docker image without using an OS but from scratch an binarie dependencies
+#Avantages: Smallest image, less security problem, ...
+#Author: david.tre07@gmail.com
+DPACKRELEASE=1.0
+
+#Wrap pushd and popd to be silent
+function pushd() {
+    command pushd "$@" > /dev/null
+}
+function popd() {
+    command popd "$@" > /dev/null
+}
+
+#Name: msg
+#Description: print message
+#Parameter: Message to print
+#Return: Nothing
+function msg() {
+    echo "$*"
+}
+
+#Name: die
+#Description: Print message and exit
+#Parameters: Message string
+#Return: Nothing
+function die() {
+    echo "" >&2
+    echo "ERROR: $*" >&2
+    exit 1
+}
+
+#Name: debug
+#Description: Print message and exit
+#Parameters: Message string
+#Return: Nothing
+function debug() {
+    [[ $DEBUG == 1 ]] && echo "  DEBUG: $*" >&2
+}
+
+#Name: check_prerequisites
+#Description: Verify all prerequisites
+#Parameters: None
+#Return: Nothing
+function check_prerequisites() {
+    debug "Checking prerequisites"
+    command -v docker >/dev/null || die "Missing binary: docker"
+    debug "docker is available"
+    command -v ldd >/dev/null || die "Missing binary: ldd"
+    debug "ldd is available"
+    debug "Checking if temp folder doesn't exist"
+    [ -d $TEMP_DIR ] && die "Temp folder $TEMP_DIR already exist"
+}
+
+#Name: find_dependencies
+#Description: Detect binary dependencies
+#Parameters: Binary
+#Return: Nothing
+function find_dependencies(){
+    local l_BIN=$*
+    debug "Finding dependencies of $l_BIN"
+    msg $l_BIN
+    ldd $l_BIN | grep "/" |sed -e"/:$/d" -e"s%[^/]*/%/%" -e"s%(.*)%%" -e"s%:$%%" |sort -u
+}
+
+#Name: prepare_docker_env
+#Description: prepare all files needed for building docker:
+#       Copy bin + lib
+#       Generate LD_LIBRARY_PATH
+#Parameters: Binary + list of libs
+#Return: Nothing
+function prepare_docker_env(){
+    debug "prepare_docker_env $*"
+    local l_BIN=$1;shift
+    local l_LIBS=$*
+    local l_FILE
+    local l_DIR
+    local l_NAME
+    for l_FILE in $l_BIN $l_LIBS;do
+        #Folder
+        l_DIR=${l_FILE%/*}
+        #File name
+        l_NAME=${l_FILE##*/}
+        #If target doesn't exist create it
+        #And generate LD_LIBRARY_PATH
+        if [ ! -d ${TEMP_DIR}${l_DIR} ];then
+            mkdir -p ${TEMP_DIR}${l_DIR}
+            [[  ${l_FILE} != ${l_BIN} ]] && LD_LIBRARY_PATH="$LD_LIBRARY_PATH:${l_DIR}"
+        fi
+        debug "cp $l_FILE ${TEMP_DIR}${l_DIR}"
+        cp $l_FILE ${TEMP_DIR}${l_DIR}
+        #Compress file
+        #[ ${l_FILE} == ${l_BIN} ] && upx -q "${TEMP_DIR}${l_DIR}/${l_NAME}"
+    done
+    debug "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
+}
+
+#Name: generate_dockerfile
+#Description: replace vars on template dockerfile
+#Parameters: None
+#Return: Nothing
+function generate_dockerfile(){
+    if [[ $TEMPLATE_FILE == "" ]];then
+        echo 'FROM scratch' >${TEMP_DIR}/Dockerfile
+    else
+        cp $TEMPLATE_FILE ${TEMP_DIR}/Dockerfile
+    fi
+    sed -i -e"1i#Generated docker by docker-pack $DPACKRELEASE (david.tre07@gmail.com)" ${TEMP_DIR}/Dockerfile
+    echo "ENV LD_LIBRARY_PATH $LD_LIBRARY_PATH" >> ${TEMP_DIR}/Dockerfile
+    echo "COPY . /" >> ${TEMP_DIR}/Dockerfile
+    [[ $USERID != "" ]] && echo "USER $USERID" >> ${TEMP_DIR}/Dockerfile
+    [[ $ENTRYPOINT != "" ]] && echo "ENTRYPOINT [\"$ENTRYPOINT\"]" >> ${TEMP_DIR}/Dockerfile
+    [[ $COMMAND != "" ]] && echo "CMD [\"$COMMAND\"]" >> ${TEMP_DIR}/Dockerfile
+}
+
+#Name: clean_docker_env
+#Description: Cleanup docker env
+#Parameters: None
+#Return: Nothing
+function clean_docker_env(){
+    debug "Cleaning temp folder"
+    rm -fr ${TEMP_DIR}
+}
+
+#Name: build_dockerimage
+#Description: Build docker image
+#Parameters: None (use global vars)
+#Return: Nothing
+function build_dockerimage(){
+    #If no tag provided then generate one
+    if [[ $TAG_NAME == "" ]];then
+        [[ $COMMAND != "" ]] && TAG_NAME=${COMMAND##*/}
+        [[ $ENTRYPOINT != "" ]] && TAG_NAME=${ENTRYPOINT##*/}
+    fi
+    pushd ${TEMP_DIR}
+    debug "docker build -q -t ${TAG_NAME}:${TAG_VERSION} ."
+    docker build -q -t ${TAG_NAME}:${TAG_VERSION} .
+    [[ $? == 0 ]] && msg "Docker generated: ${TAG_NAME}:${TAG_VERSION}"
+    popd
+}
+
+#Name: activate_passwd
+#Description: Add files in docker so /etc/passwd will works
+#Parameters: user
+#Return: Nothing
+function activate_passwd(){
+    debug "Generating /etc/passwd"
+    local l_user=$1;shift
+    #Generate a small passwd and shadow
+    [ -d "${TEMP_DIR}/etc" ] || mkdir -p ${TEMP_DIR}/etc
+    echo "$l_user:x:1000:1000:bin:/:/sbin/nologin" > "${TEMP_DIR}/etc/passwd"
+    echo "$l_user:!!:1000::::::" > "${TEMP_DIR}/etc/shadow"
+    echo "/lib64/libnss_files.so.2"
+}
+
+#Name: activate_nslookup
+#Description: Add files in docker so nslookup will works
+#Parameters: None
+#Return: Nothing
+function activate_nslookup(){
+    debug "Generating nsswitch.conf"
+    [ -d "${TEMP_DIR}/etc" ] || mkdir -p ${TEMP_DIR}/etc
+    echo "passwd:     files
+shadow:     files
+group:      files
+hosts:      files dns" > "${TEMP_DIR}/etc/nsswitch.conf"
+    echo "/lib64/libnss_dns.so.2"
+}
+
+#Name: are_files_present
+#Description: Check if files are present on disk
+#Parameters: Files_list
+#Return: Nothing
+function are_files_present(){
+    debug "Checking files present or not"
+    local l_list=$*
+    local l_file
+    for l_file in $l_list; do
+        [ -f $l_file ] || die "File not found: \"$l_file\", where is it ?"
+    done
+}
+
+#Name: serialize_file
+#Description: Serialize file list and remove comments
+#Parameters: file_list
+#Return: Nothing
+function serialize_file(){
+    debug "Adding additional files"
+    local l_filelist=$1;shift
+    cat $l_filelist | grep -v "^#" | tr '\n' ' '
+}
+
+#Name: usage
+#Description: Print out usage
+#Parameters: None
+#Return: Nothing
+function usage() {
+    echo "Usage: $0 [-b] [-c cmd] [-d] [-e cmd] [-f file] [-h] [-l log_file] [-n] [-p user] [-s template_file] [-t tag] [-u uid:gid] [-v version] [-w workdir] binary [binary] [binary] [binary]"
+    echo
+    echo "-b      : Don't build the docker"
+    echo "-c cmd  : Define command to run on docker CMD"
+    echo "-d      : Debug mode"
+    echo "-e cmd  : Define entrypoint (default: 1st binary)"
+    echo "-f file : A file listing files to add inside the docker image (absolute path, one file per line)"
+    echo "-h      : This Help"
+    echo "-l file : Log into a file"
+    echo "-n      : Activate nslookup"
+    echo "-p user : Activate password file with an account provided as parameter"
+    echo "-s file : Dockerfile template file (if not provided a default one will be generated)"
+    echo "-t tag  : Define Docker image tag (default: 1st binary name)"
+    echo "-u uid:gid : Define a uid:gid as docker will run (USER in dockerfile)"
+    echo "-v version : Define Docker image version (default: 1.0)"
+    echo "-w workdir : Working directory (default: /tmp/docker-pack)"
+    echo "Binary(ies) to put inside a docker"
+    echo ""
+    echo "Example: $0 /usr/bin/tar"
+    echo "         To run it: docker run --rm tar:1.0 --help"
+    echo
+}
+
+########## MAIN ##########
+COMMAND="";ENTRYPOINT=""
+DOCKER_BUILD=1;DEBUG=0
+TEMPLATE_FILE=""
+TAG_NAME="";TAG_VERSION="1.0"
+USERID="";ADDONS="";ADDFILES=""
+LD_LIBRARY_PATH="."
+NSLOOKUP=0;PASSWD=0
+TEMP_DIR="/tmp/docker-pack"
+
+while getopts ":bc:de:f:l:hnp:s:t:u:v:w:" opt; do
+    case "$opt" in
+    b)  DOCKER_BUILD=0
+        ;;
+    c)  COMMAND=$OPTARG
+        ;;
+    d)  DEBUG=1
+        ;;
+    e)  ENTRYPOINT=$OPTARG
+        ;;
+    f)  [ -f $OPTARG ] && ADDFILES="$ADDFILES $(serialize_file $OPTARG)" || die "File not found: $OPTARG" 
+        ;;
+    h)  usage; exit 0
+        ;;
+    l)  exec >>$OPTARG 2>&1 
+        ;;
+    n)  NSLOOKUP=1
+        ;;
+    p)  PASSWD=1
+        ;;
+    s)  TEMPLATE_FILE=$OPTARG
+        ;;
+    t)  TAG_NAME=$OPTARG
+        ;;
+    u)  USERID=$OPTARG
+        ;;
+    v)  TAG_VERSION=$OPTARG
+        ;;
+    w)  TEMP_DIR=$OPTARG
+        ;;
+    \?) die "Invalid option: -$OPTARG"
+        ;;
+    :)  die "Option -$OPTARG requires an argument."
+        ;;
+    esac
+done
+shift $((OPTIND-1))
+if [ $# -lt 1 ];then usage; exit 1; fi
+BINARIES="$*"
+
+check_prerequisites
+[[ $NSLOOKUP == "1" ]] && ADDONS="$ADDONS $(activate_nslookup)"
+[[ $PASSWD == "1" ]] && ADDONS="$ADDONS $(activate_passwd $OPTARG)"
+#If no command provided and no entrypoint then set 1st bin as default entrypoint
+if [[ $COMMAND == "" ]];then
+    [[ $ENTRYPOINT == "" ]] && ENTRYPOINT=$1
+fi
+
+are_files_present ${BINARIES} ${ADDONS} ${ADDFILES}
+prepare_docker_env $(find_dependencies ${BINARIES} ${ADDONS}) ${ADDFILES}
+generate_dockerfile
+
+if [[ $DOCKER_BUILD == 1 ]];then
+    build_dockerimage
+    clean_docker_env
+else
+    msg "Docker is ready to build in folder: ${TEMP_DIR}"
+    msg "You can build it with: cd ${TEMP_DIR}; docker -t docker_name:1.0 ."
+fi

@@ -1,0 +1,7 @@
+#Example of Dockerfile template (only the FROM scratch is mandatory)
+FROM scratch
+
+LABEL Author="David Tre (david.tre07@gmail.com)" \
+      Maintainer="David Tre (david.tre07@gmail.com)"
+
+COPY /blabla/foo /

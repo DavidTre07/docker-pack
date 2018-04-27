@@ -1,0 +1,5 @@
+# Example file to add additional files inside docker image
+# One file per line
+# Absolute path
+/etc/services
+/etc/networks
