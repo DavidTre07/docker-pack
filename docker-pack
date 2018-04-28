@@ -18,7 +18,7 @@ function popd() {
 #Parameter: Message to print
 #Return: Nothing
 function msg() {
-    echo "$*"
+    echo "$@"
 }
 
 #Name: die
@@ -27,7 +27,7 @@ function msg() {
 #Return: Nothing
 function die() {
     echo "" >&2
-    echo "ERROR: $*" >&2
+    echo "ERROR: $@" >&2
     exit 1
 }
 
@@ -58,7 +58,7 @@ function check_prerequisites() {
 #Parameters: Binary
 #Return: Nothing
 function find_dependencies(){
-    local l_BIN=$*
+    local l_BIN="$@"
     debug "Finding dependencies of $l_BIN"
     msg $l_BIN
     ldd $l_BIN | grep "/" |sed -e"/:$/d" -e"s%[^/]*/%/%" -e"s%(.*)%%" -e"s%:$%%" |sort -u
@@ -71,9 +71,9 @@ function find_dependencies(){
 #Parameters: Binary + list of libs
 #Return: Nothing
 function prepare_docker_env(){
-    debug "prepare_docker_env $*"
+    debug "prepare_docker_env $@"
     local l_BIN=$1;shift
-    local l_LIBS=$*
+    local l_LIBS="$@"
     local l_FILE
     local l_DIR
     local l_NAME
@@ -174,7 +174,7 @@ hosts:      files dns" > "${TEMP_DIR}/etc/nsswitch.conf"
 #Return: Nothing
 function are_files_present(){
     debug "Checking files present or not"
-    local l_list=$*
+    local l_list="$@"
     local l_file
     for l_file in $l_list; do
         [ -f $l_file ] || die "File not found: \"$l_file\", where is it ?"
@@ -243,7 +243,8 @@ while getopts ":bc:de:f:l:hnp:s:t:u:v:w:" opt; do
         ;;
     h)  usage; exit 0
         ;;
-    l)  exec >>$OPTARG 2>&1 
+    l)  [ -d ${OPTARG%/*} ] || mkdir -p ${OPTARG%/*}
+        exec >>$OPTARG 2>&1 
         ;;
     n)  NSLOOKUP=1
         ;;
@@ -267,9 +268,10 @@ while getopts ":bc:de:f:l:hnp:s:t:u:v:w:" opt; do
 done
 shift $((OPTIND-1))
 if [ $# -lt 1 ];then usage; exit 1; fi
-BINARIES="$*"
+BINARIES="$@"
 
 check_prerequisites
+#Generate a list of additional libs
 [[ $NSLOOKUP == "1" ]] && ADDONS="$ADDONS $(activate_nslookup)"
 [[ $PASSWD == "1" ]] && ADDONS="$ADDONS $(activate_passwd $OPTARG)"
 #If no command provided and no entrypoint then set 1st bin as default entrypoint
