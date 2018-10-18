@@ -88,6 +88,7 @@ function checkPrerequisites() {
 #Description: Detect binary dependencies
 #Parameters: Binary
 #Return: Nothing
+<<<<<<< HEAD
 function findDependencies(){
     [[ $# -lt 1 ]] && die "$0 -> ${FUNCNAME}() : problem on number of parameters ($#)"
     local l_BIN="$@"
@@ -98,6 +99,16 @@ function findDependencies(){
     msg $l_BIN
     #If shared lib then print dependencies
     ldd $l_BIN | grep "/" |sed -e"/:$/d" -e"s%[^/]*/%/%" -e"s%(.*)%%" -e"s%:$%%" |sort -u
+=======
+function find_dependencies(){
+    local l_BINARIES="$@"
+    local l_BIN
+    debug "Finding dependencies of $l_BINARIES"
+    msg $l_BINARIES
+    for l_BIN in $l_BINARIES;do
+        ldd $l_BIN | grep "/" |sed -e"/:$/d" -e"s%[^/]*/%/%" -e"s%(.*)%%" -e"s%:$%%"
+    done |sort -u
+>>>>>>> 44488e2fc4f9f5d595990118ae29301d97bbf7a0
 }
 
 #Name: prepareDockerEnv
@@ -126,7 +137,7 @@ function prepareDockerEnv(){
             [[  ${l_FILE} != ${l_BIN} ]] && LD_LIBRARY_PATH="$LD_LIBRARY_PATH:${l_DIR}"
         fi
         debug "cp $l_FILE ${TEMP_DIR}${l_DIR}"
-        cp $l_FILE ${TEMP_DIR}${l_DIR}
+        cp -p $l_FILE ${TEMP_DIR}${l_DIR}
         #Compress file
         #[ ${l_FILE} == ${l_BIN} ] && upx -q "${TEMP_DIR}${l_DIR}/${l_NAME}"
     done
@@ -236,6 +247,7 @@ function serializeFile(){
     cat $l_filelist | grep -v "^#" | tr '\n' ' '
 }
 
+<<<<<<< HEAD
 #Name: exitIfNotElf
 #Description: detect if binary is an ELF file
 #Parameters: binaries
@@ -249,6 +261,70 @@ function exitIfNotElf(){
         file -i `readlink -f $l_binary` | grep -E "$l_listOfSupportedType" >/dev/null 2>&1
         [[ $? -eq 1 ]] && die "File \"$l_binary\" is not an executable..."
     done
+=======
+#Name: add_fonts
+#Description: Add fonts inside docker
+#Parameters:  None
+#Return: Nothing
+function add_fonts(){
+    #Fonts list
+    local l_fontslist="/usr/share/fonts/google-droid/DroidSans.ttf"
+    echo $l_fontslist
+}
+
+#Name: separate_file_type
+#Description: In the file list provided, determine which are ELF or not
+#Parameters:  filelist
+#Return: Nothing
+function separate_file_type(){
+    local l_filelist=$@
+    local l_file
+    #Empty filelist
+    BINARIES=""; ADDFILES=""
+    for l_file in $l_filelist;do
+        case "$(file $(readlink -f $l_file))" in
+        *ELF*) debug "$l_file: ELF"
+            BINARIES="$BINARIES $l_file"
+            ;;
+        *"shell script"*) debug "$l_file: Script"
+            ADDFILES="$ADDFILES $l_file"
+            msg "Warning: $l_file is a shell script, you need to check inside script what binaries are used."
+            ;;
+        *) debug "$l_file: Other file"
+            ADDFILES="$ADDFILES $l_file"
+            ;;
+        esac
+    done
+}
+
+#Name: usage
+#Description: Print out usage
+#Parameters: None
+#Return: Nothing
+function usage() {
+    echo "Usage: $0 [-a file] [-b] [-c cmd] [-d] [-e cmd] [-f file] [-h] [-l log_file] [-n] [-p user] [-s template_file] [-t tag] [-u uid:gid] [-v version] [-w workdir] binary [binary] [binary] [binary]"
+    echo
+    echo "-a file : A listing of files to add inside the docker image (absolute path, one file per line)"
+    echo "-b      : Don't build the docker"
+    echo "-c cmd  : Define command to run on docker CMD"
+    echo "-d      : Debug mode"
+    echo "-e cmd  : Define entrypoint (default: 1st binary)"
+    echo "-f      : Add font inside docker"
+    echo "-h      : This Help"
+    echo "-l file : Log into a file"
+    echo "-n      : Activate nslookup"
+    echo "-p user : Activate password file with an account provided as parameter"
+    echo "-s file : Dockerfile template file (if not provided a default one will be generated)"
+    echo "-t tag  : Define Docker image tag (default: 1st binary name)"
+    echo "-u uid:gid : Define a uid:gid as docker will run (USER in dockerfile)"
+    echo "-v version : Define Docker image version (default: 1.0)"
+    echo "-w workdir : Working directory (default: /tmp/docker-pack)"
+    echo "Binary(ies) to put inside a docker"
+    echo ""
+    echo "Example: $0 /usr/bin/tar"
+    echo "         To run it: docker run --rm tar:1.0 --help"
+    echo
+>>>>>>> 44488e2fc4f9f5d595990118ae29301d97bbf7a0
 }
 
 ########## MAIN ##########
@@ -256,13 +332,15 @@ COMMAND="";ENTRYPOINT=""
 DOCKER_BUILD=1;DEBUG=0
 TEMPLATE_FILE=""
 TAG_NAME="";TAG_VERSION="1.0"
-USERID="";ADDONS="";ADDFILES=""
+USERID="";ADDFILES=""
 LD_LIBRARY_PATH="."
 NSLOOKUP=0;PASSWD=0
 TEMP_DIR="/tmp/docker-pack"
 
-while getopts ":bc:de:f:l:hnp:s:t:u:v:w:" opt; do
+while getopts ":a:bc:de:fl:hnp:s:t:u:v:w:" opt; do
     case "$opt" in
+    a)  [ -f $OPTARG ] && ADDFILES="$ADDFILES $(serialize_file $OPTARG)" || die "File not found: $OPTARG" 
+        ;;
     b)  DOCKER_BUILD=0
         ;;
     c)  COMMAND=$OPTARG
@@ -271,7 +349,11 @@ while getopts ":bc:de:f:l:hnp:s:t:u:v:w:" opt; do
         ;;
     e)  ENTRYPOINT=$OPTARG
         ;;
+<<<<<<< HEAD
     f)  [ -f $OPTARG ] && ADDFILES="$ADDFILES $(serializeFile $OPTARG)" || die "File not found: $OPTARG" 
+=======
+    f)  ADDFILES="$ADDFILES $(add_fonts)" 
+>>>>>>> 44488e2fc4f9f5d595990118ae29301d97bbf7a0
         ;;
     h)  usage; exit 0
         ;;
@@ -304,16 +386,28 @@ BINARIES="$@"
 
 checkPrerequisites
 #Generate a list of additional libs
+<<<<<<< HEAD
 [[ $NSLOOKUP == "1" ]] && ADDONS="$ADDONS $(activateNslookup)"
 [[ $PASSWD == "1" ]] && ADDONS="$ADDONS $(activatePasswd $OPTARG)"
+=======
+[[ $NSLOOKUP == "1" ]] && ADDFILES="$ADDFILES $(activate_nslookup)"
+[[ $PASSWD == "1" ]] && ADDFILES="$ADDFILES $(activate_passwd $OPTARG)"
+>>>>>>> 44488e2fc4f9f5d595990118ae29301d97bbf7a0
 #If no command provided and no entrypoint then set 1st bin as default entrypoint
 if [[ $COMMAND == "" ]];then
     [[ $ENTRYPOINT == "" ]] && ENTRYPOINT=$1
 fi
 
+<<<<<<< HEAD
 areFilesPresent ${BINARIES} ${ADDONS} ${ADDFILES}
 prepareDockerEnv $(findDependencies ${BINARIES} ${ADDONS}) ${ADDFILES}
 generateDockerfile
+=======
+are_files_present ${BINARIES} ${ADDFILES}
+separate_file_type ${BINARIES} ${ADDFILES}
+prepare_docker_env $(find_dependencies ${BINARIES}) ${ADDFILES}
+generate_dockerfile
+>>>>>>> 44488e2fc4f9f5d595990118ae29301d97bbf7a0
 
 if [[ $DOCKER_BUILD == 1 ]];then
     buildDockerimage
