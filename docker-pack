@@ -99,14 +99,12 @@ function findDependencies(){
     done |sort -u
 }
 
-#Name: prepareDockerEnv
-#Description: prepare all files needed for building docker:
-#       Copy bin + lib
-#       Generate LD_LIBRARY_PATH
+#Name: prepareFilesToPack
+#Description: prepare all files needed for building docker: Copy bin + lib
 #Parameters: Binary + list of libs
 #Return: Nothing
-function prepareDockerEnv(){
-    debug "prepareDockerEnv $@"
+function prepareFilesToPack(){
+    debug "prepareFilesToPack $@"
     [[ $# -lt 1 ]] && die "$0 -> ${FUNCNAME}() : problem on number of parameters ($#)"
     local l_BIN=$1;shift
     local l_LIBS="$@"
@@ -197,7 +195,7 @@ function buildDockerimage(){
 #Name: activatePasswd
 #Description: Add files in docker so /etc/passwd will works
 #Parameters: user
-#Return: Nothing
+#Return: Libs or bin needed
 function activatePasswd(){
     debug "Generating /etc/passwd"
     [[ $# -ne 1 ]] && die "$0 -> ${FUNCNAME}() : problem on number of parameters ($#)"
@@ -212,7 +210,7 @@ function activatePasswd(){
 #Name: activateNslookup
 #Description: Add files in docker so nslookup will works
 #Parameters: None
-#Return: Nothing
+#Return: Libs needed
 function activateNslookup(){
     debug "Generating nsswitch.conf"
     [[ $# -ne 0 ]] && die "$0 -> ${FUNCNAME}() : problem on number of parameters ($#)"
@@ -356,7 +354,7 @@ fi
 
 areFilesPresent ${BINARIES} ${ADDBIN} ${ADDFILES}
 separateFileType ${BINARIES} ${ADDBIN}
-prepareDockerEnv $(findDependencies ${BINARIES}) ${ADDBIN} ${ADDFILES}
+prepareFilesToPack $(findDependencies ${BINARIES}) ${ADDBIN} ${ADDFILES}
 generateLdLibraryPath ${BINARIES}
 generateDockerfile
 
