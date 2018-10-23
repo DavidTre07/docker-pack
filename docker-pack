@@ -135,6 +135,7 @@ function generateLdLibraryPath(){
     local l_LIBS="$@"
     local l_FILE
     local l_LIST
+    debug "Generating LD_LIBRARY_PATH for $l_LIBS"
     #Generate list of folder (uniq)
     l_LIST=$(for l_FILE in $l_LIBS;do
         #Folder
@@ -354,8 +355,9 @@ fi
 
 areFilesPresent ${BINARIES} ${ADDBIN} ${ADDFILES}
 separateFileType ${BINARIES} ${ADDBIN}
-prepareFilesToPack $(findDependencies ${BINARIES}) ${ADDBIN} ${ADDFILES}
-generateLdLibraryPath ${BINARIES}
+DEPENDENCIES=$(findDependencies ${BINARIES})
+prepareFilesToPack ${DEPENDENCIES} ${ADDBIN} ${ADDFILES}
+generateLdLibraryPath ${BINARIES} ${DEPENDENCIES}
 generateDockerfile
 
 if [[ $DOCKER_BUILD == 1 ]];then
