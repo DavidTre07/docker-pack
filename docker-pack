@@ -10,13 +10,14 @@
 #Parameters: None
 #Return: Nothing
 function usage() {
-    echo "Usage: $0 [-b] [-c cmd] [-d] [-e cmd] [-f file] [-h] [-l log_file] [-n] [-p user] [-s template_file] [-t tag] [-u uid:gid] [-v version] [-w workdir] binary [binary] [binary] [binary]"
+    echo "Usage: $0 [-a file] [-b] [-c cmd] [-d] [-e cmd] [-f file] [-h] [-l log_file] [-n] [-p user] [-s template_file] [-t tag] [-u uid:gid] [-v version] [-w workdir] binary [binary] [binary] [binary]"
     echo
+    echo "-a file : A listing of files to add inside the docker image (absolute path, one file per line)"
     echo "-b      : Don't build the docker"
     echo "-c cmd  : Define command to run on docker CMD"
     echo "-d      : Debug mode"
     echo "-e cmd  : Define entrypoint (default: 1st binary)"
-    echo "-f file : A file listing files to add inside the docker image (absolute path, one file per line)"
+    echo "-f      : Add font inside docker"
     echo "-h      : This Help"
     echo "-l file : Log into a file"
     echo "-n      : Activate nslookup"
