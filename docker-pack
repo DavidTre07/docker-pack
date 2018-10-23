@@ -119,16 +119,30 @@ function prepareDockerEnv(){
         #File name
         l_NAME=${l_FILE##*/}
         #If target doesn't exist create it
-        #And generate LD_LIBRARY_PATH
         if [ ! -d ${TEMP_DIR}${l_DIR} ];then
             mkdir -p ${TEMP_DIR}${l_DIR}
-            [[  ${l_FILE} != ${l_BIN} ]] && LD_LIBRARY_PATH="$LD_LIBRARY_PATH:${l_DIR}"
         fi
         debug "cp $l_FILE ${TEMP_DIR}${l_DIR}"
         cp -p $l_FILE ${TEMP_DIR}${l_DIR}
         #Compress file
         #[ ${l_FILE} == ${l_BIN} ] && upx -q "${TEMP_DIR}${l_DIR}/${l_NAME}"
     done
+}
+
+#Name: generateLdLibraryPath
+#Description: generate LD_LIBRARY_PATH var with path of libs
+#Parameters: FileList
+#Return: Nothing (populate global var LD_LIBRARY_PATH)
+function generateLdLibraryPath(){
+    local l_LIBS="$@"
+    local l_FILE
+    local l_LIST
+    #Generate list of folder (uniq)
+    l_LIST=$(for l_FILE in $l_LIBS;do
+        #Folder
+         echo "${l_FILE%/*}"
+    done |sort -u)
+    LD_LIBRARY_PATH="${LD_LIBRARY_PATH}"$(for l_FILE in $l_LIST;do echo -n ":${l_FILE}";done)
     debug "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
 }
 
@@ -192,7 +206,7 @@ function activatePasswd(){
     [ -d "${TEMP_DIR}/etc" ] || mkdir -p ${TEMP_DIR}/etc
     echo "$l_user:x:1000:1000:bin:/:/sbin/nologin" > "${TEMP_DIR}/etc/passwd"
     echo "$l_user:!!:1000::::::" > "${TEMP_DIR}/etc/shadow"
-    echo "/lib64/libnss_files.so.2"
+    echo "/sbin/nologin /lib64/libnss_files.so.2"
 }
 
 #Name: activateNslookup
@@ -241,7 +255,8 @@ function serializeFile(){
 #Return: Nothing
 function add_fonts(){
     #Fonts list
-    local l_fontslist="/usr/share/fonts/google-droid/DroidSans.ttf"
+    #local l_fontslist="/usr/share/fonts/google-droid/DroidSans.ttf"
+    local l_fontslist=$(fc-list |awk -F ":" '{print $1}')
     echo $l_fontslist
 }
 
@@ -254,14 +269,14 @@ function separateFileType(){
     local l_file
     local l_shebang
     #Empty filelist
-    BINARIES=""; ADDFILES=""
+    BINARIES=""; ADDBIN=""
     for l_file in $l_filelist;do
         case "$(file $(readlink -f $l_file))" in
         *ELF*) debug "$l_file: ELF"
             BINARIES="$BINARIES $l_file"
             ;;
         *"shell script"*) debug "$l_file: Script"
-            ADDFILES="$ADDFILES $l_file"
+            ADDBIN="$ADDBIN $l_file"
             msg "Warning: $l_file is a shell script, I'm not able to pack it automatically"
             msg "You need to check inside script what binaries are used. and add it to the list to pack..."
             #At a minimum we can pack the shebang
@@ -273,6 +288,9 @@ function separateFileType(){
             ;;
         esac
     done
+    debug "Separated BINARIES: $BINARIES"
+    debug "Separated ADDBIN: $ADDBIN"
+    debug "Separated ADDFILES: $ADDFILES"
 }
 
 ########## MAIN ##########
@@ -280,15 +298,16 @@ COMMAND="";ENTRYPOINT=""
 DOCKER_BUILD=1;DEBUG=0
 TEMPLATE_FILE=""
 TAG_NAME="";TAG_VERSION="1.0"
-USERID="";ADDFILES=""
+USERID="";ADDBIN="";ADDFILES=""
 LD_LIBRARY_PATH="."
-NSLOOKUP=0;PASSWD=0
 TEMP_DIR="/tmp/docker-pack"
 SCRIPT_PID=$$
 
+checkPrerequisites
+
 while getopts ":a:bc:de:fl:hnp:s:t:u:v:w:" opt; do
     case "$opt" in
-    a)  [ -f $OPTARG ] && ADDFILES="$ADDFILES $(serialize_file $OPTARG)" || die "File not found: $OPTARG" 
+    a)  [ -f $OPTARG ] && ADDBIN="$ADDBIN $(serialize_file $OPTARG)" || die "File not found: $OPTARG" 
         ;;
     b)  DOCKER_BUILD=0
         ;;
@@ -305,9 +324,9 @@ while getopts ":a:bc:de:fl:hnp:s:t:u:v:w:" opt; do
     l)  [ -d ${OPTARG%/*} ] || mkdir -p ${OPTARG%/*}
         exec >>$OPTARG 2>&1 
         ;;
-    n)  NSLOOKUP=1
+    n)  ADDBIN="$ADDBIN $(activateNslookup)"
         ;;
-    p)  PASSWD=1
+    p)  ADDBIN="$ADDBIN $(activatePasswd $OPTARG)"
         ;;
     s)  TEMPLATE_FILE=$OPTARG
         ;;
@@ -330,18 +349,15 @@ if [ $# -lt 1 ];then usage; die "Missing a binary file to pack"; fi
 BINARIES="$@"
 debug "List of binaries: $BINARIES"
 
-checkPrerequisites
-#Generate a list of additional libs
-[[ $NSLOOKUP == "1" ]] && ADDFILES="$ADDFILES $(activate_nslookup)"
-[[ $PASSWD == "1" ]] && ADDFILES="$ADDFILES $(activate_passwd $OPTARG)"
 #If no command provided and no entrypoint then set 1st bin as default entrypoint
 if [[ $COMMAND == "" ]];then
     [[ $ENTRYPOINT == "" ]] && ENTRYPOINT=$1
 fi
 
-areFilesPresent ${BINARIES} ${ADDFILES}
-separateFileType ${BINARIES} ${ADDFILES}
-prepareDockerEnv $(findDependencies ${BINARIES}) ${ADDFILES}
+areFilesPresent ${BINARIES} ${ADDBIN} ${ADDFILES}
+separateFileType ${BINARIES} ${ADDBIN}
+prepareDockerEnv $(findDependencies ${BINARIES}) ${ADDBIN} ${ADDFILES}
+generateLdLibraryPath ${BINARIES}
 generateDockerfile
 
 if [[ $DOCKER_BUILD == 1 ]];then
