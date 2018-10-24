@@ -24,7 +24,7 @@ function usage() {
     echo "-p user : Activate password file with an account provided as parameter"
     echo "-s file : Dockerfile template file (if not provided a default one will be generated)"
     echo "-t tag  : Define Docker image tag (default: 1st binary name)"
-    echo "-u uid:gid : Define a uid:gid as docker will run (USER in dockerfile)"
+    echo "-u uid:gid : Define a uid:gid or user:group or user as docker will run (USER in dockerfile)"
     echo "-v version : Define Docker image version (default: 1.0)"
     echo "-w workdir : Working directory (default: /tmp/docker-pack)"
     echo "Binary(ies) to put inside a docker"
@@ -165,6 +165,41 @@ function generateDockerfile(){
     [[ $COMMAND != "" ]] && echo "CMD [\"$COMMAND\"]" >> ${TEMP_DIR}/Dockerfile
 }
 
+#Name: calculateUIDGID
+#Description: Determine UID and GID
+#Parameters: UserName
+#Return: UID:GID
+function calculateUIDGID(){
+    debug "Calculate UID and GID"
+    [[ $# -ne 1 ]] && die "$0 -> ${FUNCNAME}() : problem on number of parameters ($#)"
+    local l_PARAM=$1;shift
+    local l_USER;local l_UID
+    local l_GRP;local l_GID
+    #If we have already UID and GID just print out
+    echo $l_PARAM|grep -q -w "[0-9]*:[0-9]*"
+    if [[ $? == 0 ]];then
+        debug "UID-GID: $l_PARAM -> We have already UID and GID no need to calculate"
+        echo $l_PARAM
+    else
+        echo $l_PARAM|grep -q ":"
+        if [[ $? == 0 ]];then
+            debug "We detected a : (we have user:group) so we convert UID and GID"
+            l_USER=$(echo $l_PARAM|cut -d: -f 1)
+            l_UID=$(id -u $l_USER)
+            l_GRP=$(echo $l_PARAM|cut -d: -f 2)
+            l_GID=$(getent group $l_GRP | cut -d: -f3)
+            debug "Calculated: $l_PARAM = $l_UID:$l_GID"
+            echo "$l_UID:$l_GID"
+        else
+            debug "If we have only a user name, determine UID and GID"
+            l_UID=$(id -u $l_PARAM)
+            l_GID=$(id -g $l_PARAM)
+            debug "Calculated: $l_PARAM = $l_UID:$l_GID"
+            echo "$l_UID:$l_GID"
+        fi
+    fi
+}
+
 #Name: cleanDockerEnv
 #Description: Cleanup docker env
 #Parameters: None
@@ -253,7 +288,8 @@ function serializeFile(){
 #Parameters:  None
 #Return: Nothing
 function add_fonts(){
-    #Fonts list
+    debug "Generating font list"
+    [[ $# -ne 0 ]] && die "$0 -> ${FUNCNAME}() : problem on number of parameters ($#)"
     #local l_fontslist="/usr/share/fonts/google-droid/DroidSans.ttf"
     local l_fontslist=$(fc-list |awk -F ":" '{print $1}')
     echo $l_fontslist
@@ -264,6 +300,8 @@ function add_fonts(){
 #Parameters:  filelist
 #Return: Nothing
 function separateFileType(){
+    debug "Separating file type"
+    [[ $# -lt 1 ]] && die "$0 -> ${FUNCNAME}() : problem on number of parameters ($#)"
     local l_filelist=$@
     local l_file
     local l_shebang
@@ -306,38 +344,53 @@ checkPrerequisites
 
 while getopts ":a:bc:de:fl:hnp:s:t:u:v:w:" opt; do
     case "$opt" in
-    a)  [ -f $OPTARG ] && ADDBIN="$ADDBIN $(serialize_file $OPTARG)" || die "File not found: $OPTARG" 
+    a)  #File listing file to pack
+        [ -f $OPTARG ] && ADDBIN="$ADDBIN $(serialize_file $OPTARG)" || die "File not found: $OPTARG" 
         ;;
-    b)  DOCKER_BUILD=0
+    b)  #Do not build docker image
+        DOCKER_BUILD=0
         ;;
-    c)  COMMAND=$OPTARG
+    c)  #Docker CMD
+        COMMAND=$OPTARG
         ;;
-    d)  DEBUG=1
+    d)  #Debug mode
+        DEBUG=1
         ;;
-    e)  ENTRYPOINT=$OPTARG
+    e)  #Docker ENTRYPOINT
+        ENTRYPOINT=$OPTARG
         ;;
-    f)  ADDFILES="$ADDFILES $(add_fonts)" 
+    f)  #Add fonts
+        ADDFILES="$ADDFILES $(add_fonts)" 
         ;;
-    h)  usage; exit 0
+    h)  #Usage
+        usage; exit 0
         ;;
-    l)  [ -d ${OPTARG%/*} ] || mkdir -p ${OPTARG%/*}
+    l)  #Logging file
+        [ -d ${OPTARG%/*} ] || mkdir -p ${OPTARG%/*}
         exec >>$OPTARG 2>&1 
         ;;
-    n)  ADDBIN="$ADDBIN $(activateNslookup)"
+    n)  #Add nslookup
+        ADDBIN="$ADDBIN $(activateNslookup)"
         ;;
-    p)  ADDBIN="$ADDBIN $(activatePasswd $OPTARG)"
+    p)  #Add /etc/passwd in docker image
+        ADDBIN="$ADDBIN $(activatePasswd $OPTARG)"
         ;;
-    s)  TEMPLATE_FILE=$OPTARG
+    s)  #Dockerfile template
+        TEMPLATE_FILE=$OPTARG
         ;;
-    t)  TAG_NAME=$OPTARG
+    t)  #Docker image TAG
+        TAG_NAME=$OPTARG
         ;;
-    u)  USERID=$OPTARG
+    u)  #Docker USER (uid:gid or user:group or user)
+        USERID=$(calculateUIDGID $OPTARG)
         ;;
-    v)  TAG_VERSION=$OPTARG
+    v)  #Docker image version
+        TAG_VERSION=$OPTARG
         ;;
-    w)  TEMP_DIR=$OPTARG
+    w)  #Temp working directory
+        TEMP_DIR=$OPTARG
         ;;
-    \?) die "Invalid option: -$OPTARG"
+    \?) usage; exit 0
         ;;
     :)  die "Option -$OPTARG requires an argument."
         ;;

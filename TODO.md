@@ -1,2 +1,1 @@
-* If instead of uid:gid the user provide username then grab uid and gid in passwd file
 * In the case of a binary that is symlinked to another binary (for example sh is a symlink to bash), then pack the right binary and create symlink
