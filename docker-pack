@@ -59,6 +59,7 @@ function die() {
     echo "ERROR: $@" >&2
     cleanDockerEnv
     kill $SCRIPT_PID
+    exit 1
 }
 
 #Name: debug
