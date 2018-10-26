@@ -104,27 +104,47 @@ function findDependencies(){
 #Description: prepare all files needed for building docker: Copy bin + lib
 #Parameters: Binary + list of libs
 #Return: Nothing
+#TODO: rewrite this function as it is bad writen...
 function prepareFilesToPack(){
     debug "prepareFilesToPack $@"
     [[ $# -lt 1 ]] && die "$0 -> ${FUNCNAME}() : problem on number of parameters ($#)"
     local l_BIN=$1;shift
     local l_LIBS="$@"
-    local l_FILE
-    local l_DIR
-    local l_NAME
+    local l_FILE;local l_FILE_TARGET
+    local l_DIR;local l_DIR_TARGET
+    local l_NAME;local l_NAME_TARGET
     for l_FILE in $l_BIN $l_LIBS;do
         #Folder
         l_DIR=${l_FILE%/*}
         #File name
         l_NAME=${l_FILE##*/}
-        #If target doesn't exist create it
+        #If folder doesn't exist create it
         if [ ! -d ${TEMP_DIR}${l_DIR} ];then
             mkdir -p ${TEMP_DIR}${l_DIR}
         fi
-        debug "cp $l_FILE ${TEMP_DIR}${l_DIR}"
-        cp -p $l_FILE ${TEMP_DIR}${l_DIR}
-        #Compress file
-        #[ ${l_FILE} == ${l_BIN} ] && upx -q "${TEMP_DIR}${l_DIR}/${l_NAME}"
+        l_FILE_TARGET=$(isSymlink $l_FILE)
+        if [[ $? == 0 ]]; then
+            debug "Symbolic link detected"
+            #Folder
+            l_DIR_TARGET=${l_FILE_TARGET%/*}
+            #File name
+            l_NAME_TARGET=${l_FILE_TARGET##*/}
+            #If folder doesn't exist create it
+            if [ ! -d ${TEMP_DIR}${l_DIR_TARGET} ];then
+                mkdir -p ${TEMP_DIR}${l_DIR_TARGET}
+            fi
+            debug "cp $l_FILE_TARGET ${TEMP_DIR}${l_DIR_TARGET}"
+            cp -p $l_FILE_TARGET ${TEMP_DIR}${l_DIR_TARGET}
+            #Create de symlink: Warning this symlink need to be relative
+            pushd ${TEMP_DIR}
+            ln -s $l_FILE_TARGET .${l_FILE}
+            popd
+        else
+            debug "cp $l_FILE ${TEMP_DIR}${l_DIR}"
+            cp -p $l_FILE ${TEMP_DIR}${l_DIR}
+            #Compress file
+            #[ ${l_FILE} == ${l_BIN} ] && upx -q "${TEMP_DIR}${l_DIR}/${l_NAME}"
+        fi
     done
 }
 
@@ -147,7 +167,7 @@ function generateLdLibraryPath(){
 }
 
 #Name: generateDockerfile
-#Description: replace vars on template dockerfile
+#Description: replace vars on template dockerfile or generate a new one
 #Parameters: None
 #Return: Nothing
 function generateDockerfile(){
@@ -331,6 +351,26 @@ function separateFileType(){
     debug "Separated BINARIES: $BINARIES"
     debug "Separated ADDBIN: $ADDBIN"
     debug "Separated ADDFILES: $ADDFILES"
+}
+
+#Name: isSymlink
+#Description: Determine if file is a symbolic link, if yes return target file and return code 0, if no return code 1
+#Parameters: file
+#Return: code 0 + target file if symbolic link, code 1 if not symbolic link
+function isSymlink(){
+    [[ $# -ne 1 ]] && die "$0 -> ${FUNCNAME}() : problem on number of parameters ($#)"
+    local l_file=$1;shift
+    local l_target
+    debug "Determining if $l_file is a symlink"
+    if [[ -L $l_file ]];then
+        l_target=$(readlink -f $l_file)
+        debug "$l_file is a symbolic link to $l_target"
+        echo $l_target
+        return 0
+    else
+        debug "$l_file is not a symbolic link"
+        return 1
+    fi
 }
 
 ########## MAIN ##########
