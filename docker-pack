@@ -173,29 +173,31 @@ function calculateUIDGID(){
     debug "Calculate UID and GID"
     [[ $# -ne 1 ]] && die "$0 -> ${FUNCNAME}() : problem on number of parameters ($#)"
     local l_PARAM=$1;shift
+    local l_TEMP
     local l_USER;local l_UID
     local l_GRP;local l_GID
     #If we have already UID and GID just print out
     echo $l_PARAM|grep -q -w "[0-9]*:[0-9]*"
     if [[ $? == 0 ]];then
-        debug "UID-GID: $l_PARAM -> We have already UID and GID no need to calculate"
+        debug "UID:GID: $l_PARAM -> We have already UID and GID no need to calculate"
         echo $l_PARAM
     else
         echo $l_PARAM|grep -q ":"
         if [[ $? == 0 ]];then
             debug "We detected a : (we have user:group) so we convert UID and GID"
             l_USER=$(echo $l_PARAM|cut -d: -f 1)
-            l_UID=$(id -u $l_USER)
+            l_UID=$(id -u $l_USER) ||die "Unable to determine UID, does $l_USER user exist?"
             l_GRP=$(echo $l_PARAM|cut -d: -f 2)
-            l_GID=$(getent group $l_GRP | cut -d: -f3)
+            l_TEMP=$(getent group $l_GRP) ||die "unable to determine GID, does $l_GRP group exist?"
+            l_GID=$(echo $l_TEMP | cut -d: -f3)
             debug "Calculated: $l_PARAM = $l_UID:$l_GID"
-            echo "$l_UID:$l_GID"
+            echo "UID:GID: $l_UID:$l_GID"
         else
             debug "If we have only a user name, determine UID and GID"
-            l_UID=$(id -u $l_PARAM)
-            l_GID=$(id -g $l_PARAM)
+            l_UID=$(id -u $l_PARAM) ||die "Unable to determine UID, does $l_PARAM user exist?"
+            l_GID=$(id -g $l_PARAM) ||die "Unable to determine GID"
             debug "Calculated: $l_PARAM = $l_UID:$l_GID"
-            echo "$l_UID:$l_GID"
+            echo "UID:GID: $l_UID:$l_GID"
         fi
     fi
 }
