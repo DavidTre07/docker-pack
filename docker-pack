@@ -38,6 +38,7 @@ function usage() {
 function pushd() {
     command pushd "$@" > /dev/null
 }
+# shellcheck disable=SC2120
 function popd() {
     command popd "$@" > /dev/null
 }
@@ -56,9 +57,9 @@ function msg() {
 #Return: Nothing
 function die() {
     echo "" >&2
-    echo "ERROR: $@" >&2
+    echo "ERROR: $*" >&2
     cleanDockerEnv
-    kill $SCRIPT_PID
+    kill "$SCRIPT_PID"
     exit 1
 }
 
@@ -76,13 +77,14 @@ function debug() {
 #Return: Nothing
 function checkPrerequisites() {
     debug "Checking prerequisites"
-    [[ $# -ne 0 ]] && die "$0 -> ${FUNCNAME}() : problem on number of parameters ($#)"
+    # shellcheck disable=SC2128
+    [[ $# -ne 0 ]] && die "$0 -> ${FUNCNAME[0]}() : problem on number of parameters ($#)"
     command -v docker >/dev/null || die "Missing binary: docker"
     debug "docker is available"
     command -v ldd >/dev/null || die "Missing binary: ldd"
     debug "ldd is available"
     debug "Checking if temp folder doesn't exist"
-    [ -d $TEMP_DIR ] && die "Temp folder $TEMP_DIR already exist"
+    [ -d "$TEMP_DIR" ] && die "Temp folder $TEMP_DIR already exist"
 }
 
 #Name: findDependencies
@@ -90,13 +92,13 @@ function checkPrerequisites() {
 #Parameters: Binary
 #Return: Nothing
 function findDependencies(){
-    [[ $# -lt 1 ]] && die "$0 -> ${FUNCNAME}() : problem on number of parameters ($#)"
-    local l_BINARIES="$@"
+    [[ $# -lt 1 ]] && die "$0 -> ${FUNCNAME[0]}() : problem on number of parameters ($#)"
+    local l_BINARIES="$*"
     local l_BIN
     debug "Finding dependencies of $l_BINARIES"
-    msg $l_BINARIES
+    msg "$l_BINARIES"
     for l_BIN in $l_BINARIES;do
-        ldd $l_BIN | grep "/" |sed -e"/:$/d" -e"s%[^/]*/%/%" -e"s%(.*)%%" -e"s%:$%%"
+        ldd "$l_BIN" | grep "/" |sed -e"/:$/d" -e"s%[^/]*/%/%" -e"s%(.*)%%" -e"s%:$%%"
     done |sort -u
 }
 
@@ -106,42 +108,37 @@ function findDependencies(){
 #Return: Nothing
 #TODO: rewrite this function as it is bad writen...
 function prepareFilesToPack(){
-    debug "prepareFilesToPack $@"
-    [[ $# -lt 1 ]] && die "$0 -> ${FUNCNAME}() : problem on number of parameters ($#)"
+    debug "prepareFilesToPack $*"
+    [[ $# -lt 1 ]] && die "$0 -> ${FUNCNAME[0]}() : problem on number of parameters ($#)" 
     local l_BIN=$1;shift
-    local l_LIBS="$@"
+    local l_LIBS="$*"
     local l_FILE;local l_FILE_TARGET
     local l_DIR;local l_DIR_TARGET
-    local l_NAME;local l_NAME_TARGET
     for l_FILE in $l_BIN $l_LIBS;do
         #Folder
         l_DIR=${l_FILE%/*}
-        #File name
-        l_NAME=${l_FILE##*/}
         #If folder doesn't exist create it
-        if [ ! -d ${TEMP_DIR}${l_DIR} ];then
-            mkdir -p ${TEMP_DIR}${l_DIR}
+        if [ ! -d "${TEMP_DIR}${l_DIR}" ];then
+            mkdir -p "${TEMP_DIR}${l_DIR}"
         fi
-        l_FILE_TARGET=$(isSymlink $l_FILE)
-        if [[ $? == 0 ]]; then
+        if l_FILE_TARGET=$(isSymlink "$l_FILE");then
             debug "Symbolic link detected"
             #Folder
             l_DIR_TARGET=${l_FILE_TARGET%/*}
-            #File name
-            l_NAME_TARGET=${l_FILE_TARGET##*/}
             #If folder doesn't exist create it
-            if [ ! -d ${TEMP_DIR}${l_DIR_TARGET} ];then
-                mkdir -p ${TEMP_DIR}${l_DIR_TARGET}
+            if [ ! -d "${TEMP_DIR}${l_DIR_TARGET}" ];then
+                mkdir -p "${TEMP_DIR}${l_DIR_TARGET}"
             fi
             debug "cp $l_FILE_TARGET ${TEMP_DIR}${l_DIR_TARGET}"
-            cp -p $l_FILE_TARGET ${TEMP_DIR}${l_DIR_TARGET}
+            cp -p "$l_FILE_TARGET" "${TEMP_DIR}${l_DIR_TARGET}"
             #Create de symlink: Warning this symlink need to be relative
-            pushd ${TEMP_DIR}
-            ln -s $l_FILE_TARGET .${l_FILE}
-            popd
+            pushd "${TEMP_DIR}" ||die "Problem to move in ${TEMP_DIR}"
+            ln -s "$l_FILE_TARGET" ".${l_FILE}"
+            # shellcheck disable=SC2119
+            popd ||die "Problem to move back in original folder"
         else
             debug "cp $l_FILE ${TEMP_DIR}${l_DIR}"
-            cp -p $l_FILE ${TEMP_DIR}${l_DIR}
+            cp -p "$l_FILE" "${TEMP_DIR}${l_DIR}"
             #Compress file
             #[ ${l_FILE} == ${l_BIN} ] && upx -q "${TEMP_DIR}${l_DIR}/${l_NAME}"
         fi
@@ -153,7 +150,7 @@ function prepareFilesToPack(){
 #Parameters: FileList
 #Return: Nothing (populate global var LD_LIBRARY_PATH)
 function generateLdLibraryPath(){
-    local l_LIBS="$@"
+    local l_LIBS;l_LIBS="$*"
     local l_FILE
     local l_LIST
     debug "Generating LD_LIBRARY_PATH for $l_LIBS"
@@ -172,23 +169,23 @@ function generateLdLibraryPath(){
 #Return: Nothing
 function generateDockerfile(){
     debug "Generating Dockerfile"
-    [[ $# -ne 0 ]] && die "$0 -> ${FUNCNAME}() : problem on number of parameters ($#)"
+    [[ $# -ne 0 ]] && die "$0 -> ${FUNCNAME[0]}() : problem on number of parameters ($#)"
     local l_UID; local l_GID; local l_USER
     if [[ $TEMPLATE_FILE == "" ]];then
-        echo 'FROM scratch' >${TEMP_DIR}/Dockerfile
+        echo 'FROM scratch' >"${TEMP_DIR}/Dockerfile"
     else
-        cp $TEMPLATE_FILE ${TEMP_DIR}/Dockerfile
+        cp "$TEMPLATE_FILE" "${TEMP_DIR}/Dockerfile"
     fi
-    sed -i -e"1i#Generated by docker-pack (https://github.com/DavidTre07/docker-pack)" ${TEMP_DIR}/Dockerfile
+    sed -i -e"1i#Generated by docker-pack (https://github.com/DavidTre07/docker-pack)" "${TEMP_DIR}/Dockerfile"
     if [[ $USERID != "" ]];then
         debug "Creating USER account and create USER line"
-        l_USER=$(echo $USERID|cut -d: -f1)
-        echo "USER $l_USER" >> ${TEMP_DIR}/Dockerfile
+        l_USER=$(echo "$USERID"|cut -d: -f1)
+        echo "USER $l_USER" >> "${TEMP_DIR}/Dockerfile"
     fi
-    echo "ENV LD_LIBRARY_PATH $LD_LIBRARY_PATH" >> ${TEMP_DIR}/Dockerfile
-    echo "COPY . /" >> ${TEMP_DIR}/Dockerfile
-    [[ $ENTRYPOINT != "" ]] && echo "ENTRYPOINT [\"$ENTRYPOINT\"]" >> ${TEMP_DIR}/Dockerfile
-    [[ $COMMAND != "" ]] && echo "CMD [\"$COMMAND\"]" >> ${TEMP_DIR}/Dockerfile
+    echo "ENV LD_LIBRARY_PATH $LD_LIBRARY_PATH" >> "${TEMP_DIR}/Dockerfile"
+    echo "COPY . /" >> "${TEMP_DIR}/Dockerfile"
+    [[ $ENTRYPOINT != "" ]] && echo "ENTRYPOINT [\"$ENTRYPOINT\"]" >> "${TEMP_DIR}/Dockerfile"
+    [[ $COMMAND != "" ]] && echo "CMD [\"$COMMAND\"]" >> "${TEMP_DIR}/Dockerfile"
 }
 
 #Name: calculateUIDGID
@@ -197,31 +194,29 @@ function generateDockerfile(){
 #Return: UID:GID:username
 function calculateUIDGID(){
     debug "Calculate UID and GID"
-    [[ $# -ne 1 ]] && die "$0 -> ${FUNCNAME}() : problem on number of parameters ($#)"
+    [[ $# -ne 1 ]] && die "$0 -> ${FUNCNAME[0]}() : problem on number of parameters ($#)"
     local l_PARAM=$1;shift
     local l_TEMP
     local l_USER;local l_UID
     local l_GRP;local l_GID
     #If we have already UID and GID just print out
-    echo $l_PARAM|grep -q -w "[0-9]*:[0-9]*"
-    if [[ $? == 0 ]];then
+    if echo "$l_PARAM"|grep -q -w "[0-9]*:[0-9]*";then
         debug "UID:GID:USER $l_PARAM -> We have already UID and GID no need to calculate"
         echo "docker_user:$l_PARAM"
     else
-        echo $l_PARAM|grep -q ":"
-        if [[ $? == 0 ]];then
+        if echo "$l_PARAM"|grep -q ":";then
             debug "We detected a : (we have user:group) so we convert UID and GID"
-            l_USER=$(echo $l_PARAM|cut -d: -f 1)
-            l_UID=$(id -u $l_USER) ||die "Unable to determine UID, does $l_USER user exist?"
-            l_GRP=$(echo $l_PARAM|cut -d: -f 2)
-            l_TEMP=$(getent group $l_GRP) ||die "unable to determine GID, does $l_GRP group exist?"
-            l_GID=$(echo $l_TEMP | cut -d: -f3)
+            l_USER=$(echo "$l_PARAM"|cut -d: -f 1)
+            l_UID=$(id -u "$l_USER") ||die "Unable to determine UID, does $l_USER user exist?"
+            l_GRP=$(echo "$l_PARAM"|cut -d: -f 2)
+            l_TEMP=$(getent group "$l_GRP") ||die "unable to determine GID, does $l_GRP group exist?"
+            l_GID=$(echo "$l_TEMP" | cut -d: -f3)
             debug "Calculated: $l_USER:$l_UID:$l_GID"
             echo "$l_USER:$l_UID:$l_GID"
         else
             debug "If we have only a user name, determine UID and GID"
-            l_UID=$(id -u $l_PARAM) ||die "Unable to determine UID, does $l_PARAM user exist?"
-            l_GID=$(id -g $l_PARAM) ||die "Unable to determine GID"
+            l_UID=$(id -u "$l_PARAM") ||die "Unable to determine UID, does $l_PARAM user exist?"
+            l_GID=$(id -g "$l_PARAM") ||die "Unable to determine GID"
             debug "Calculated: $l_PARAM:$l_UID:$l_GID"
             echo "$l_PARAM:$l_UID:$l_GID"
         fi
@@ -234,8 +229,8 @@ function calculateUIDGID(){
 #Return: Nothing
 function cleanDockerEnv(){
     debug "Cleaning temp folder"
-    [[ $# -ne 0 ]] && die "$0 -> ${FUNCNAME}() : problem on number of parameters ($#)"
-    rm -fr ${TEMP_DIR}
+    [[ $# -ne 0 ]] && die "$0 -> ${FUNCNAME[0]}() : problem on number of parameters ($#)"
+    rm -fr "${TEMP_DIR}"
 }
 
 #Name: buildDockerimage
@@ -243,17 +238,19 @@ function cleanDockerEnv(){
 #Parameters: None (use global vars)
 #Return: Nothing
 function buildDockerimage(){
-    [[ $# -ne 0 ]] && die "$0 -> ${FUNCNAME}() : problem on number of parameters ($#)"
+    [[ $# -ne 0 ]] && die "$0 -> ${FUNCNAME[0]}() : problem on number of parameters ($#)"
     #If no tag provided then generate one
     if [[ $TAG_NAME == "" ]];then
         [[ $COMMAND != "" ]] && TAG_NAME=${COMMAND##*/}
         [[ $ENTRYPOINT != "" ]] && TAG_NAME=${ENTRYPOINT##*/}
     fi
-    pushd ${TEMP_DIR}
+    pushd "${TEMP_DIR}" ||die "Problem to move in ${TEMP_DIR}"
     debug "docker build -q -t ${TAG_NAME}:${TAG_VERSION} ."
-    docker build -q -t ${TAG_NAME}:${TAG_VERSION} .
-    [[ $? == 0 ]] && msg "Docker generated: ${TAG_NAME}:${TAG_VERSION}"
-    popd
+    if docker build -q -t "${TAG_NAME}:${TAG_VERSION}" .;then
+        msg "Docker generated: ${TAG_NAME}:${TAG_VERSION}"
+    fi
+    # shellcheck disable=SC2119
+    popd ||die "Problem to move back in original folder"
 }
 
 #Name: activatePasswd
@@ -262,13 +259,13 @@ function buildDockerimage(){
 #Return: Libs or bin needed
 function activatePasswd(){
     debug "Generating /etc/passwd"
-    [[ $# -ne 1 ]] && die "$0 -> ${FUNCNAME}() : problem on number of parameters ($#)"
+    [[ $# -ne 1 ]] && die "$0 -> ${FUNCNAME[0]}() : problem on number of parameters ($#)"
     local l_param=$1;shift
-    local l_user=$(echo $l_param|cut -d: -f1)
-    local l_uid=$(echo $l_param|cut -d: -f2)
-    local l_gid=$(echo $l_param|cut -d: -f3)
+    local l_user;l_user=$(echo "$l_param"|cut -d: -f1)
+    local l_uid;l_uid=$(echo "$l_param"|cut -d: -f2)
+    local l_gid;l_gid=$(echo "$l_param"|cut -d: -f3)
     #Generate a minimalistic passwd and shadow
-    [ -d "${TEMP_DIR}/etc" ] || mkdir -p ${TEMP_DIR}/etc
+    [ -d "${TEMP_DIR}/etc" ] || mkdir -p "${TEMP_DIR}/etc"
     echo "$l_user:x:$l_uid:$l_gid:bin:/:/sbin/nologin" > "${TEMP_DIR}/etc/passwd"
     echo "$l_user:!!:$l_gid::::::" > "${TEMP_DIR}/etc/shadow"
     echo "/sbin/nologin /lib64/libnss_files.so.2"
@@ -280,8 +277,8 @@ function activatePasswd(){
 #Return: Libs needed
 function activateNslookup(){
     debug "Generating nsswitch.conf"
-    [[ $# -ne 0 ]] && die "$0 -> ${FUNCNAME}() : problem on number of parameters ($#)"
-    [ -d "${TEMP_DIR}/etc" ] || mkdir -p ${TEMP_DIR}/etc
+    [[ $# -ne 0 ]] && die "$0 -> ${FUNCNAME[0]}() : problem on number of parameters ($#)"
+    [ -d "${TEMP_DIR}/etc" ] || mkdir -p "${TEMP_DIR}/etc"
     echo "passwd:     files
 shadow:     files
 group:      files
@@ -295,11 +292,11 @@ hosts:      files dns" > "${TEMP_DIR}/etc/nsswitch.conf"
 #Return: Nothing
 function areFilesPresent(){
     debug "Checking files present or not"
-    [[ $# -lt 1 ]] && die "$0 -> ${FUNCNAME}() : problem on number of parameters ($#)"
-    local l_list="$@"
+    [[ $# -lt 1 ]] && die "$0 -> ${FUNCNAME[0]}() : problem on number of parameters ($#)"
+    local l_list="$*"
     local l_file
     for l_file in $l_list; do
-        [ -f $l_file ] || die "File not found: \"$l_file\", where is it ?"
+        [ -f "$l_file" ] || die "File not found: \"$l_file\", where is it ?"
     done
 }
 
@@ -309,9 +306,9 @@ function areFilesPresent(){
 #Return: Nothing
 function serializeFile(){
     debug "Adding additional files"
-    [[ $# -ne 1 ]] && die "$0 -> ${FUNCNAME}() : problem on number of parameters ($#)"
+    [[ $# -ne 1 ]] && die "$0 -> ${FUNCNAME[0]}() : problem on number of parameters ($#)"
     local l_filelist=$1;shift
-    cat $l_filelist | grep -v "^#" | tr '\n' ' '
+    grep -v "^#" "$l_filelist" | tr '\n' ' '
 }
 
 #Name: add_fonts
@@ -320,10 +317,11 @@ function serializeFile(){
 #Return: Nothing
 function add_fonts(){
     debug "Generating font list"
-    [[ $# -ne 0 ]] && die "$0 -> ${FUNCNAME}() : problem on number of parameters ($#)"
-    #local l_fontslist="/usr/share/fonts/google-droid/DroidSans.ttf"
-    local l_fontslist=$(fc-list |awk -F ":" '{print $1}')
-    echo $l_fontslist
+    [[ $# -ne 0 ]] && die "$0 -> ${FUNCNAME[0]}() : problem on number of parameters ($#)"
+    local l_fontslist
+    #l_fontslist="/usr/share/fonts/google-droid/DroidSans.ttf"
+    l_fontslist=$(fc-list |awk -F ":" '{print $1}')
+    echo "$l_fontslist"
 }
 
 #Name: separateFileType
@@ -332,14 +330,15 @@ function add_fonts(){
 #Return: Nothing
 function separateFileType(){
     debug "Separating file type"
-    [[ $# -lt 1 ]] && die "$0 -> ${FUNCNAME}() : problem on number of parameters ($#)"
-    local l_filelist=$@
+    [[ $# -lt 1 ]] && die "$0 -> ${FUNCNAME[0]}() : problem on number of parameters ($#)"
+    local l_filelist="$*"
     local l_file
     local l_shebang
     #Empty filelist
     BINARIES=""; ADDBIN=""
     for l_file in $l_filelist;do
-        case "$(file $(readlink -f $l_file))" in
+        # shellcheck disable=SC2046
+        case "$(file $(readlink -f "$l_file"))" in
         *ELF*) debug "$l_file: ELF"
             BINARIES="$BINARIES $l_file"
             ;;
@@ -348,7 +347,7 @@ function separateFileType(){
             msg "Warning: $l_file is a shell script, I'm not able to pack it automatically"
             msg "You need to check inside script what binaries are used. and add it to the list to pack..."
             #At a minimum we can pack the shebang
-            l_shebang=$(head -1 $l_file | sed -e"s/#\!//")
+            l_shebang=$(head -1 "$l_file" | sed -e"s/#\\!//")
             BINARIES="$BINARIES $l_shebang"
             ;;
         *) debug "$l_file: Other file"
@@ -366,14 +365,14 @@ function separateFileType(){
 #Parameters: file
 #Return: code 0 + target file if symbolic link, code 1 if not symbolic link
 function isSymlink(){
-    [[ $# -ne 1 ]] && die "$0 -> ${FUNCNAME}() : problem on number of parameters ($#)"
+    [[ $# -ne 1 ]] && die "$0 -> ${FUNCNAME[0]}() : problem on number of parameters ($#)"
     local l_file=$1;shift
     local l_target
     debug "Determining if $l_file is a symlink"
     if [[ -L $l_file ]];then
-        l_target=$(readlink -f $l_file)
+        l_target=$(readlink -f "$l_file")
         debug "$l_file is a symbolic link to $l_target"
-        echo $l_target
+        echo "$l_target"
         return 0
     else
         debug "$l_file is not a symbolic link"
@@ -396,7 +395,10 @@ checkPrerequisites
 while getopts ":a:bc:de:fl:hnp:s:t:u:v:w:" opt; do
     case "$opt" in
     a)  #File listing file to pack
-        [ -f $OPTARG ] && ADDBIN="$ADDBIN $(serialize_file $OPTARG)" || die "File not found: $OPTARG" 
+        if [ -f "$OPTARG" ]
+        then ADDBIN="$ADDBIN $(serialize_file "$OPTARG")"
+        else die "File not found: $OPTARG"
+        fi
         ;;
     b)  #Do not build docker image
         DOCKER_BUILD=0
@@ -417,13 +419,14 @@ while getopts ":a:bc:de:fl:hnp:s:t:u:v:w:" opt; do
         usage; exit 0
         ;;
     l)  #Logging file
-        [ -d ${OPTARG%/*} ] || mkdir -p ${OPTARG%/*}
-        exec >>$OPTARG 2>&1 
+        [ -d "${OPTARG%/*}" ] || mkdir -p "${OPTARG%/*}"
+        exec >>"$OPTARG" 2>&1 
         ;;
     n)  #Add nslookup
         ADDBIN="$ADDBIN $(activateNslookup)"
         ;;
     p)  #Add /etc/passwd in docker image
+        # shellcheck disable=SC2086
         ADDBIN="$ADDBIN $(activatePasswd $OPTARG:1000:1000)"
         ;;
     s)  #Dockerfile template
@@ -433,7 +436,8 @@ while getopts ":a:bc:de:fl:hnp:s:t:u:v:w:" opt; do
         TAG_NAME=$OPTARG
         ;;
     u)  #Docker USER (uid:gid or user:group or user)
-        USERID=$(calculateUIDGID $OPTARG)
+        USERID=$(calculateUIDGID "$OPTARG")
+        # shellcheck disable=SC2086
         ADDBIN="$ADDBIN $(activatePasswd  $USERID)"
         ;;
     v)  #Docker image version
@@ -450,7 +454,7 @@ while getopts ":a:bc:de:fl:hnp:s:t:u:v:w:" opt; do
 done
 shift $((OPTIND-1))
 if [ $# -lt 1 ];then usage; die "Missing a binary file to pack"; fi
-BINARIES="$@"
+BINARIES="$*"
 debug "List of binaries: $BINARIES"
 
 #If no command provided and no entrypoint then set 1st bin as default entrypoint
@@ -458,11 +462,11 @@ if [[ $COMMAND == "" ]];then
     [[ $ENTRYPOINT == "" ]] && ENTRYPOINT=$1
 fi
 
-areFilesPresent ${BINARIES} ${ADDBIN} ${ADDFILES}
-separateFileType ${BINARIES} ${ADDBIN}
-DEPENDENCIES=$(findDependencies ${BINARIES})
-prepareFilesToPack ${DEPENDENCIES} ${ADDBIN} ${ADDFILES}
-generateLdLibraryPath ${BINARIES} ${DEPENDENCIES}
+areFilesPresent "${BINARIES}" "${ADDBIN}" "${ADDFILES}"
+separateFileType "${BINARIES}" "${ADDBIN}"
+DEPENDENCIES=$(findDependencies "${BINARIES}")
+prepareFilesToPack "${DEPENDENCIES}" "${ADDBIN}" "${ADDFILES}"
+generateLdLibraryPath "${BINARIES}" "${DEPENDENCIES}"
 generateDockerfile
 
 if [[ $DOCKER_BUILD == 1 ]];then
