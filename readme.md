@@ -7,13 +7,13 @@ It manage to put inside the docker all libs needed by the artefact.
 ## Usage
 
 ```man
-./docker-pack [-a file] [-b] [-c cmd] [-d] [-e cmd] [-f file] [-h] [-i] [-l log_file] [-n] [-p user] [-s template_file] [-t tag] [-u uid:gid] [-v version] [-w workdir] binary [binary] [binary] [binary]
+Usage: ./docker-pack [-a file] [-b] [-c cmd] [-d] [-e cmd] [-f file] [-h] [-i] [-l log_file] [-n] [-p user] [-s template_file] [-t tag] [-u uid:gid] [-v version] [-w workdir] binary [binary] [binary] [binary]
 
 -a file : A listing of files to add inside the docker image (absolute path, one file per line)
 -b      : Don't build the docker
--c cmd  : Define command to run on docker CMD (default: 1st binary)
+-c cmd  : Define command to run on docker CMD
 -d      : Debug mode
--e cmd  : Define entrypoint in table form \'["xxxx","xxxx"]\' (default: tini)
+-e cmd  : Define entrypoint in table form \'["xxxx","xxxx"]\' (default: tini + 1st binary)
 -f      : Add font inside docker
 -h      : This Help
 -i      : Force usage of an init (tini) even if user specify an entrypoint (it will be started before the user entrypoint)
