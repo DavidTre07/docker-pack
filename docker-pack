@@ -177,6 +177,15 @@ function generateDockerfile(){
     local l_UID; local l_GID; local l_USER
     if [[ $TEMPLATE_FILE == "" ]];then
         echo 'FROM scratch' >"${TEMP_DIR}/Dockerfile"
+        debug "Adding labels in Dockerfile"
+        echo "LABEL org.label-schema.url=\"\" \
+    org.label-schema.vcs-url=\"https://github.com/DavidTre07/docker-pack/blob/master/docker-pack\" \
+    org.label-schema.name=\"$TAG_NAME\" \
+    org.label-schema.build-date=\"$(date --rfc-3339=ns)\" \
+    org.label-schema.description=\"Packaged by docker-pack\" \
+    org.label-schema.docker.version=\"$TAG_VERSION\" \
+    org.label-schema.docker.cmd=\"docker run --rm $TAG_NAME:$TAG_VERSION\" \
+    org.label-schema.docker.schema-version=\"1.0\"" >>"${TEMP_DIR}/Dockerfile"
     else
         cp "$TEMPLATE_FILE" "${TEMP_DIR}/Dockerfile"
     fi
