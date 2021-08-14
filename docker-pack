@@ -82,10 +82,11 @@ function debug() {
 function checkPrerequisites() {
     [[ $# -ne 0 ]] && die "$0 -> ${FUNCNAME[0]}() : problem on number of parameters ($#)"
     debug "Checking prerequisites"
-    command -v docker >/dev/null || die "Missing binary: docker"
-    debug "docker is available"
-    command -v ldd >/dev/null || die "Missing binary: ldd"
-    debug "ldd is available"
+    local l_bin
+    for l_bin in docker ldd sed sort wget perl; do
+        command -v $l_bin >/dev/null || die "Missing binary: $l_bin"
+        debug "$l_bin is available"
+    done
     debug "Checking if temp folder doesn't exist"
     [ -d "$TEMP_DIR" ] && die "Temp folder $TEMP_DIR already exist"
 }
@@ -101,7 +102,7 @@ function findDependencies(){
     debug "Finding dependencies of $l_BINARIES"
     msg "$l_BINARIES"
     for l_BIN in $l_BINARIES;do
-        ldd "$l_BIN" | grep "/" |sed -e"/:$/d" -e"s%[^/]*/%/%" -e"s%(.*)%%" -e"s%:$%%"
+        ldd "$l_BIN" 2>/dev/null | grep "/" |sed -e"/:$/d" -e"s%[^/]*/%/%" -e"s%(.*)%%" -e"s%:$%%"
     done |sort -u
 }
 
@@ -309,11 +310,13 @@ hosts:      files dns" > "${TEMP_DIR}/etc/nsswitch.conf"
 #Parameters: Files_list
 #Return: Nothing
 function areFilesPresent(){
-    debug "Checking files present or not"
     [[ $# -lt 1 ]] && die "$0 -> ${FUNCNAME[0]}() : problem on number of parameters ($#)"
     local l_list="$*"
     local l_file
     for l_file in $l_list; do
+        debug "Checking if file is in absolute path format"
+        [[ "$l_file" = /* ]] || die "File $l_file not in absolute path"
+        debug "Checking files present or not"
         [ -f "$l_file" ] || die "File not found: \"$l_file\", where is it ?"
     done
 }
@@ -344,17 +347,17 @@ function add_fonts(){
 }
 
 #Name: separateFileType
-#Description: In the file list provided, determine which are ELF or not
+#Description: In the file lists provided, determine which are ELF, script or other file
 #Parameters:  filelist
-#Return: Nothing
+#Return: Nothing directly but populate 3 global lists (BINARIES, SCRIPTFILES and ADDFILES)
 function separateFileType(){
     debug "Separating file type"
     [[ $# -lt 1 ]] && die "$0 -> ${FUNCNAME[0]}() : problem on number of parameters ($#)"
     local l_filelist="$*"
     local l_file
     local l_shebang
-    #Empty filelist
-    BINARIES=""; ADDBIN=""
+    #Emptying filelist
+    BINARIES=""; SCRIPTFILES=""
     for l_file in $l_filelist;do
         # shellcheck disable=SC2046
         case "$(file $(readlink -f "$l_file"))" in
@@ -362,9 +365,9 @@ function separateFileType(){
             BINARIES="$BINARIES $l_file"
             ;;
         *"shell script"*) debug "$l_file: Script"
-            ADDBIN="$ADDBIN $l_file"
-            msg "Warning: $l_file is a shell script, I'm not able to pack it automatically"
-            msg "You need to check inside script what binaries are used. and add it to the list to pack..."
+            SCRIPTFILES="$SCRIPTFILES $l_file"
+            msg "Warning: $l_file is a shell script, I'm trying to pack it automatically"
+            msg "You need to check if we packed all binaries, and add the missing to the list to pack..."
             #At a minimum we can pack the shebang
             l_shebang=$(head -1 "$l_file" | sed -e"s/#\\!//")
             BINARIES="$BINARIES $l_shebang"
@@ -374,8 +377,9 @@ function separateFileType(){
             ;;
         esac
     done
+    #We generated 3 lists: BINARIES, SCRIPTFILES and ADDFILES
     debug "Separated BINARIES: $BINARIES"
-    debug "Separated ADDBIN: $ADDBIN"
+    debug "Separated SCRIPTFILES: $SCRIPTFILES"
     debug "Separated ADDFILES: $ADDFILES"
 }
 
@@ -426,16 +430,38 @@ function isDockerExisting(){
     [[ $l_dockerid == "" ]] && return 0 || return 1
 }
 
+#Name: findScriptBinaries
+#Description: Find all binaries used inside a script
+#Parameters: Script_to_analyse
+#Return: list of binaries
+function findScriptBinaries(){
+    [[ $# -ne 1 ]] && die "$0 -> ${FUNCNAME[0]}() : problem on number of parameters ($#)"
+    local l_script_list=$1
+    local l_script
+    debug "Finding binaries inside the shell script"
+    for l_script in ${l_script_list}; do
+        sed '/^[[:blank:]]*#/d;s/^#.*//' "${l_script}"  | \
+        perl -pe 's/echo ".+?"/echo ""/'                | \
+        grep -E -o -e '^[^ ]+ ? ' -e '[a-zA-Z0-9]+'     | \
+        sort -u                                         | \
+        while read -r line
+        do
+            type -P "$line"
+        done
+    done | sort -u
+}
+
 ########## MAIN ##########
 COMMAND="";ENTRYPOINT=""
 DOCKER_BUILD=1;DEBUG=0
 FORCETINI=0; DOWNTINI=0
 TEMPLATE_FILE=""
 TAG_NAME="";TAG_VERSION="1.0"
-USERID="";ADDBIN="";ADDFILES=""
+FILELIST="";
+USERID="";ADDFILES="";SCRIPTFILES=""
 LD_LIBRARY_PATH="."
 BIN=$0
-TEMP_DIR="/tmp/${BIN##*/}"
+TEMP_DIR="/tmp/${BIN##*/}/"
 SCRIPT_PID=$$
 
 checkPrerequisites
@@ -444,7 +470,7 @@ while getopts ":a:bc:de:fhil:np:s:t:u:v:w:" opt; do
     case "$opt" in
     a)  #File listing file to pack
         if [ -f "$OPTARG" ]
-        then ADDBIN="$ADDBIN $(serialize_file "$OPTARG")"
+        then FILELIST="$FILELIST $(serialize_file "$OPTARG")"
         else die "File not found: $OPTARG"
         fi
         ;;
@@ -474,11 +500,11 @@ while getopts ":a:bc:de:fhil:np:s:t:u:v:w:" opt; do
         exec >>"$OPTARG" 2>&1 
         ;;
     n)  #Add nslookup
-        ADDBIN="$ADDBIN $(activateNslookup)"
+        FILELIST="$FILELIST $(activateNslookup)"
         ;;
     p)  #Add /etc/passwd in docker image
         # shellcheck disable=SC2086
-        ADDBIN="$ADDBIN $(activatePasswd $OPTARG:1000:1000)"
+        FILELIST="$FILELIST $(activatePasswd $OPTARG:1000:1000)"
         ;;
     s)  #Dockerfile template
         TEMPLATE_FILE=$OPTARG
@@ -489,7 +515,7 @@ while getopts ":a:bc:de:fhil:np:s:t:u:v:w:" opt; do
     u)  #Docker USER (uid:gid or user:group or user)
         USERID=$(calculateUIDGID "$OPTARG")
         # shellcheck disable=SC2086
-        ADDBIN="$ADDBIN $(activatePasswd  $USERID)"
+        FILELIST="$FILELIST $(activatePasswd  $USERID)"
         ;;
     v)  #Docker image version
         TAG_VERSION=$OPTARG
@@ -534,10 +560,11 @@ FIRSTBIN="$1"
 [[ $TAG_NAME == "" ]] && TAG_NAME=${FIRSTBIN##*/}
 
 isDockerExisting "$TAG_NAME:$TAG_VERSION" || die "Docker already present, please remove it before (docker rmi $TAG_NAME:$TAG_VERSION)"
-areFilesPresent "${BINARIES}" "${ADDBIN}" "${ADDFILES}"
-separateFileType "${BINARIES}" "${ADDBIN}"
-DEPENDENCIES=$(findDependencies "${BINARIES}")
-prepareFilesToPack "${DEPENDENCIES}" "${ADDBIN}" "${ADDFILES}"
+areFilesPresent "${BINARIES}" "${FILELIST}" "${ADDFILES}"
+separateFileType "${BINARIES}" "${FILELIST}"
+SCRIPTBINARIES=$(findScriptBinaries "${SCRIPTFILES}")
+DEPENDENCIES=$(findDependencies "${BINARIES} ${SCRIPTBINARIES}")
+prepareFilesToPack "${DEPENDENCIES}" "${SCRIPTFILES}" "${ADDFILES}"
 [[ $DOWNTINI == 1 ]] && addTini
 generateLdLibraryPath "${BINARIES}" "${DEPENDENCIES}"
 generateDockerfile

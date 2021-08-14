@@ -21,7 +21,8 @@
 
 - [ ] If UID or user specified then, when copying files inside docker, add chown option in the COPY instruction
 - [ ] In the case of a script, read the script to find all binaries/libs used inside and pack it all
-  - [ ] Shell (bash, sh, ksh, ...)
+  - [x] Shell (bash, sh, ksh, ...)
   - [ ] Python
+- [ ] If a script call another script, analyse the dependencies recursively
 
 Open to new ideas !!!!
