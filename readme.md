@@ -30,3 +30,18 @@ Binary(ies) to put inside a docker
 Example: ./docker-pack /usr/bin/tar
          To run it: docker run --rm tar:1.0 --help
 ```
+
+## Command line integration of generated dockers
+
+For example for tar command: ```alias tar="docker run --rm tar:1.0"```  
+Then when typing tar command, it will use the docker version instead the system.  
+Be carefull it's works for the shell not for a sript!  
+For a script, you have to define the command in the begin of the script.  
+For example:
+```bash
+#!/bin/bash
+
+TAR="docker run --rm tar:1.0"
+
+$TAR --help
+```
