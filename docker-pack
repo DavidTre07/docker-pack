@@ -246,7 +246,7 @@ function calculateUIDGID(){
 # shellcheck disable=SC2120
 function cleanDockerEnv(){
     [[ $# -ne 0 ]] && die "$0 -> ${FUNCNAME[0]}() : problem on number of parameters ($#)"
-    debug "Cleaning temp folder"
+    msg "Cleaning temp folder"
     rm -fr "${TEMP_DIR}"
 }
 
@@ -403,10 +403,27 @@ function isSymlink(){
 #Description: Add tini as entrypoint so signal are well handled
 #Parameters: None
 #Return: Nothing
+# shellcheck disable=SC2120
 function addTini(){
+    [[ $# -ne 0 ]] && die "$0 -> ${FUNCNAME[0]}() : problem on number of parameters ($#)"
     debug "Adding tini in file to integrate in docker"
     wget -q https://github.com/krallin/tini/releases/latest/download/tini-static-amd64 -O "${TEMP_DIR}/tini"
     chmod +x "${TEMP_DIR}/tini"
+}
+
+#Name: isDockerExisting
+#Description: Check if a docker is already present
+#Parameters: Docker_name_to_check
+#Return: 0: doesn't exist - 1: Exist
+function isDockerExisting(){
+    [[ $# -ne 1 ]] && die "$0 -> ${FUNCNAME[0]}() : problem on number of parameters ($#)"
+    local l_docker
+    local l_dockerid
+    l_docker=$1;shift
+    debug "Checking if $l_docker already exist"
+    l_dockerid=$(docker images -q "${l_docker}"||die "Unable to detect is an image is present")
+    debug "Found docker id:- $l_dockerid -"
+    [[ $l_dockerid == "" ]] && return 0 || return 1
 }
 
 ########## MAIN ##########
@@ -516,6 +533,7 @@ fi
 FIRSTBIN="$1"
 [[ $TAG_NAME == "" ]] && TAG_NAME=${FIRSTBIN##*/}
 
+isDockerExisting "$TAG_NAME:$TAG_VERSION" || die "Docker already present, please remove it before (docker rmi $TAG_NAME:$TAG_VERSION)"
 areFilesPresent "${BINARIES}" "${ADDBIN}" "${ADDFILES}"
 separateFileType "${BINARIES}" "${ADDBIN}"
 DEPENDENCIES=$(findDependencies "${BINARIES}")
