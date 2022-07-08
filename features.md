@@ -16,6 +16,7 @@
 - [x] Ability to define a user in the docker (passwd file)
 - [x] Add an init bin (tini used) so all signals are well handled
 - [x] Check if docker image with same name and tag exist, if yes refuse to build the image
+- [x] Capability to add a folder inside docker + name it optionnaly with a volume name (-z switch)
 
 ## To do
 
